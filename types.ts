@@ -4,7 +4,8 @@ export interface KOLFormData {
   profitShare: string;
   guaranteedMinimum: string;
   bonusAmount: string;
-  bonusThreshold: string;
+  performanceThreshold: string; // Renamed from bonusThreshold
+  profitShareBonus: string; // New field
   fanOffer: string;
   endDate: string;
   sendHandle: '是' | '否';

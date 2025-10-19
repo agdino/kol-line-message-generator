@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { KOLFormData, Preset } from '../types';
+import { formatNumber, formatPercent } from '../utils/formatting';
 import Input from './ui/Input';
 import Label from './ui/Label';
 import Select from './ui/Select';
@@ -33,6 +34,7 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
   
   const [selectedPresetId, setSelectedPresetId] = useState('');
   const [newPresetName, setNewPresetName] = useState('');
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   const handlePresetSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const id = e.target.value;
@@ -43,7 +45,7 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
   const handleSavePreset = () => {
     if (newPresetName.trim()) {
       onAddPreset(newPresetName);
-      setNewPresetName(''); // Clear input after saving
+      setNewPresetName('');
     } else {
       alert("請輸入方案名稱。");
     }
@@ -51,8 +53,10 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
 
   const handleDeletePreset = () => {
     if (selectedPresetId) {
-      onDeletePreset(selectedPresetId);
-      setSelectedPresetId(''); // Reset selection after deletion
+      if (window.confirm(`確定要刪除方案 "${presets.find(p => p.id === selectedPresetId)?.name}" 嗎？`)) {
+        onDeletePreset(selectedPresetId);
+        setSelectedPresetId('');
+      }
     } else {
       alert("請從下拉選單中選擇一個要刪除的方案。")
     }
@@ -63,8 +67,13 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
     onGenerate();
   };
 
+  // Helper to decide which value to display (raw or formatted)
+  const getDisplayValue = (fieldName: keyof KOLFormData, formatFn: (val: string) => string) => {
+    return focusedField === fieldName ? formData[fieldName] : formatFn(formData[fieldName]);
+  };
+
   return (
-    <div className="bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700">
+    <div>
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-4">
         <h2 className="text-2xl font-bold text-cyan-300 whitespace-nowrap">輸入合作條件</h2>
         <div className="w-full sm:w-auto">
@@ -120,7 +129,15 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
                 <Label htmlFor="profitShare">分潤方案 * (例如: 15%)</Label>
-                <Input id="profitShare" name="profitShare" value={formData.profitShare} onChange={onFormChange} required />
+                <Input 
+                  id="profitShare" 
+                  name="profitShare" 
+                  value={getDisplayValue('profitShare', formatPercent)} 
+                  onChange={onFormChange}
+                  onFocus={(e) => setFocusedField(e.target.name)}
+                  onBlur={() => setFocusedField(null)}
+                  required 
+                />
             </div>
              <div>
                 <Label htmlFor="endDate">結束時程 *</Label>
@@ -131,31 +148,66 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
                 <Label htmlFor="guaranteedMinimum">保底金額 (若無填「無」)</Label>
-                <Input id="guaranteedMinimum" name="guaranteedMinimum" value={formData.guaranteedMinimum} onChange={onFormChange} />
+                <Input 
+                  id="guaranteedMinimum" 
+                  name="guaranteedMinimum" 
+                  value={getDisplayValue('guaranteedMinimum', formatNumber)}
+                  onChange={onFormChange}
+                  onFocus={(e) => setFocusedField(e.target.name)}
+                  onBlur={() => setFocusedField(null)}
+                />
             </div>
              <div>
                 <Label htmlFor="fanOffer">粉絲優惠 (若無填「無」)</Label>
-                <Textarea id="fanOffer" name="fanOffer" value={formData.fanOffer} onChange={onFormChange} />
+                <Textarea id="fanOffer" name="fanOffer" value={formData.fanOffer} onChange={onFormChange} rows={1} autoResize={false} />
+            </div>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <Label htmlFor="bonusAmount">加碼金額 (若無填「無」)</Label>
+                <Input 
+                  id="bonusAmount" 
+                  name="bonusAmount" 
+                  value={getDisplayValue('bonusAmount', formatNumber)}
+                  onChange={onFormChange}
+                  onFocus={(e) => setFocusedField(e.target.name)}
+                  onBlur={() => setFocusedField(null)}
+                />
+            </div>
+            <div>
+              <Label htmlFor="sendHandle">是否補寄手把 *</Label>
+              <Select id="sendHandle" name="sendHandle" value={formData.sendHandle} onChange={onFormChange}>
+                <option value="是">是</option>
+                <option value="否">否</option>
+              </Select>
             </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-                <Label htmlFor="bonusAmount">加碼金額 (若無填「無」)</Label>
-                <Input id="bonusAmount" name="bonusAmount" value={formData.bonusAmount} onChange={onFormChange} />
+                <Label htmlFor="performanceThreshold">業績達標門檻 (若無填「無」)</Label>
+                <Input 
+                  id="performanceThreshold" 
+                  name="performanceThreshold" 
+                  value={getDisplayValue('performanceThreshold', formatNumber)}
+                  onChange={onFormChange}
+                  onFocus={(e) => setFocusedField(e.target.name)}
+                  onBlur={() => setFocusedField(null)}
+                />
             </div>
              <div>
-                <Label htmlFor="bonusThreshold">加碼晉級門檻 (若無填「無」)</Label>
-                <Input id="bonusThreshold" name="bonusThreshold" value={formData.bonusThreshold} onChange={onFormChange} />
+                <Label htmlFor="profitShareBonus">門檻達標後分潤提升至 (例如: 20%)</Label>
+                <Input 
+                  id="profitShareBonus" 
+                  name="profitShareBonus" 
+                  value={getDisplayValue('profitShareBonus', formatPercent)}
+                  onChange={onFormChange} 
+                  onFocus={(e) => setFocusedField(e.target.name)}
+                  onBlur={() => setFocusedField(null)}
+                  required 
+                />
             </div>
-        </div>
-
-        <div>
-          <Label htmlFor="sendHandle">是否補寄手把 *</Label>
-          <Select id="sendHandle" name="sendHandle" value={formData.sendHandle} onChange={onFormChange}>
-            <option value="是">是</option>
-            <option value="否">否</option>
-          </Select>
         </div>
         
         <div className="flex items-center justify-end gap-4 pt-4 border-t border-slate-700">
