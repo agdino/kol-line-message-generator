@@ -1,17 +1,15 @@
-import React, { useState, useCallback } from 'react';
-import type { KOLFormData } from './types';
+import React, { useState, useCallback, useEffect } from 'react';
+import type { KOLFormData, Preset } from './types';
 import KOLMessageForm from './components/KOLMessageForm';
 import GeneratedMessage from './components/GeneratedMessage';
 import TemplateEditor from './components/TemplateEditor';
-import { polishFanOffer } from './services/geminiService';
-import { usePresets } from './hooks/usePresets';
-import { useTemplatePresets } from './hooks/useTemplatePresets';
-import { formatDataForDisplay } from './utils/formatting';
+import { formatDataForDisplay, unformatNumber, unformatPercent } from './utils/formatting';
+
 
 const initialFormData: KOLFormData = {
   contactPerson: '',
   kolName: '',
-  profitShare: '15',
+  profitShare: '15', // Store raw numbers
   guaranteedMinimum: '無',
   bonusAmount: '無',
   performanceThreshold: '無',
@@ -20,6 +18,9 @@ const initialFormData: KOLFormData = {
   endDate: new Date().toISOString().split('T')[0],
   sendHandle: '是',
 };
+
+const PRESETS_STORAGE_key = 'kol-message-presets-v2';
+const TEMPLATE_STORAGE_KEY = 'kol-message-template-v5';
 
 const DEFAULT_MESSAGE_TEMPLATE = `HI {contactPerson}，如剛剛討論，提供方案給 {kolName} 參考唷
 
@@ -43,16 +44,88 @@ const DEFAULT_MESSAGE_TEMPLATE = `HI {contactPerson}，如剛剛討論，提供�
 再麻煩 {kolName} 評估看看🙏期待可以合作一波~~`;
 
 
+const getDefaultPresets = (): Preset[] => {
+  const year = new Date().getFullYear();
+  const endDate = `${year}-11-30`;
+  // Presets now also store raw, unformatted data
+  return [
+    {
+      id: 'A',
+      name: '方案A：分潤20%',
+      data: {
+        profitShare: '20',
+        guaranteedMinimum: '無',
+        bonusAmount: '無',
+        performanceThreshold: '無',
+        profitShareBonus: '25',
+        endDate,
+        fanOffer: '無',
+      }
+    },
+    {
+      id: 'B',
+      name: '方案B：分潤15%+保底25000',
+      data: {
+        profitShare: '15',
+        guaranteedMinimum: '25000',
+        bonusAmount: '無',
+        performanceThreshold: '無',
+        profitShareBonus: '20',
+        endDate,
+        fanOffer: '無',
+      }
+    },
+    {
+      id: 'C',
+      name: '方案C：分潤10%+加碼10000',
+      data: {
+        profitShare: '10',
+        guaranteedMinimum: '無',
+        bonusAmount: '10000',
+        performanceThreshold: '150000',
+        profitShareBonus: '15',
+        endDate,
+        fanOffer: '無',
+      }
+    },
+    {
+      id: 'THRESHOLD_TEMPLATE',
+      name: '門檻達標模板',
+      data: {
+        profitShare: '15',
+        performanceThreshold: '200000',
+        profitShareBonus: '20',
+        endDate,
+      }
+    },
+    {
+      id: 'FAN_OFFER_COMBO',
+      name: '粉絲優惠模板：組合優惠',
+      data: {
+        endDate,
+        fanOffer: `🔹抽免單（3 名）
+🔹單品售價 1,649（優於官網）
+🔹手把 + DOCK 充電轉接組獨家組 2,790（官網原價 3,180）
+🔺補充：組合的充電轉接器支援 NS1 代主機，本次調查發現各通路購買 ZA 的客群有 60-70% 使用 Switch 1 代主機，所以推出此組合，目前反應很不錯`,
+      }
+    }
+  ];
+};
+
+
 const processTemplate = (template: string, data: KOLFormData): string => {
   if (!template) return '';
 
   const formattedData = formatDataForDisplay(data);
   
+  // New multi-line capable regex. The `s` flag isn't strictly needed with `[\s\S]`,
+  // but this is a robust way to match any character including newlines.
   const multiLineRegex = /\[if: (\w+)(?:=([^|\]]+))?\|([\s\S]*?)\]/g;
 
   // 1. Process conditional blocks
   let processedMessage = template.replace(multiLineRegex, (match, key, expectedValue, content) => {
     const typedKey = key as keyof KOLFormData;
+    // Use original, unformatted data for logical checks
     const actualValue = data[typedKey] ? data[typedKey].toString().trim() : '';
     
     let conditionMet = false;
@@ -66,10 +139,13 @@ const processTemplate = (template: string, data: KOLFormData): string => {
     return conditionMet ? content : '';
   });
   
-  // 2. Clean up extra newlines
+  // 2. Clean up extra newlines created by removing conditional blocks
+  // This collapses 3 or more newlines into just 2 (a single blank line),
+  // preserving intentional spacing while removing artifacts.
   processedMessage = processedMessage.replace(/(\r?\n){3,}/g, '\n\n');
 
-  // 3. Replace placeholder variables
+
+  // 3. Replace placeholder variables using the formatted data object
   let finalMessage = processedMessage;
   for (const key in formattedData) {
     const typedKey = key as keyof KOLFormData;
@@ -85,41 +161,109 @@ function App() {
   const [formData, setFormData] = useState<KOLFormData>(initialFormData);
   const [generatedMessage, setGeneratedMessage] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [isPolishing, setIsPolishing] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'form' | 'template'>('form');
   const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
   
-  const { 
-    presets, 
-    selectedPresetId, 
-    addPreset, 
-    deletePreset, 
-    selectPreset 
-  } = usePresets(initialFormData, setFormData);
+  const [messageTemplate, setMessageTemplate] = useState<string>(() => {
+     try {
+      const savedTemplate = localStorage.getItem(TEMPLATE_STORAGE_KEY);
+      return savedTemplate || DEFAULT_MESSAGE_TEMPLATE;
+    } catch (error) {
+       console.error("Failed to load template from localStorage", error);
+       return DEFAULT_MESSAGE_TEMPLATE;
+    }
+  });
   
-  const {
-    templatePresets,
-    activeTemplateId,
-    activeTemplate,
-    addTemplate,
-    deleteTemplate,
-    selectTemplate,
-    updateTemplate,
-  } = useTemplatePresets();
+  const [presets, setPresets] = useState<Preset[]>(() => {
+    try {
+      const savedPresets = localStorage.getItem(PRESETS_STORAGE_key);
+      return savedPresets ? JSON.parse(savedPresets) : getDefaultPresets();
+    } catch (error) {
+      console.error("Failed to parse presets from localStorage", error);
+      return getDefaultPresets();
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PRESETS_STORAGE_key, JSON.stringify(presets));
+    } catch (error) {
+      console.error("Failed to save presets to localStorage", error);
+    }
+  }, [presets]);
   
+  useEffect(() => {
+    try {
+      localStorage.setItem(TEMPLATE_STORAGE_KEY, messageTemplate);
+    } catch (error) {
+      console.error("Failed to save template to localStorage", error);
+    }
+  }, [messageTemplate]);
+
 
   const handleFormChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    let processedValue = value;
+
+    // Always un-format the value before saving to state to keep it clean
+    if (['guaranteedMinimum', 'bonusAmount', 'performanceThreshold'].includes(name)) {
+      processedValue = unformatNumber(value);
+    } else if (['profitShare', 'profitShareBonus'].includes(name)) {
+      processedValue = unformatPercent(value);
+    }
+
+    setFormData(prev => ({ ...prev, [name]: processedValue }));
   }, []);
 
   const handleRestart = useCallback(() => {
     setFormData(initialFormData);
     setGeneratedMessage('');
     setError('');
-    selectPreset(''); // Also deselect preset
-  }, [selectPreset]);
+  }, []);
+
+  const handleQuickSelect = useCallback((presetId: string) => {
+    if (!presetId) return;
+
+    const selectedPreset = presets.find(p => p.id === presetId);
+    if (selectedPreset) {
+      // Ensure presets merge with initial data to fill in missing fields
+      const newFormData = { ...initialFormData, ...formData, ...selectedPreset.data };
+      setFormData(newFormData);
+    }
+  }, [presets, formData]);
+
+  const handleAddPreset = useCallback((name: string) => {
+    if (!name || !name.trim()) {
+      alert("方案名稱不能為空！");
+      return;
+    }
+    const newPreset: Preset = {
+      id: Date.now().toString(),
+      name: name.trim(),
+      // Save only the relevant, clean data
+      data: {
+        profitShare: formData.profitShare,
+        guaranteedMinimum: formData.guaranteedMinimum,
+        bonusAmount: formData.bonusAmount,
+        performanceThreshold: formData.performanceThreshold,
+        profitShareBonus: formData.profitShareBonus,
+        endDate: formData.endDate,
+        fanOffer: formData.fanOffer,
+        sendHandle: formData.sendHandle,
+      }
+    };
+    setPresets(prev => [...prev, newPreset]);
+    alert(`方案 "${name.trim()}" 已儲存！`);
+  }, [formData]);
+
+  const handleDeletePreset = useCallback((presetId: string) => {
+    if (!presetId) {
+      return;
+    }
+    setPresets(prev => prev.filter(p => p.id !== presetId));
+  }, []);
 
   const handleGenerateMessage = useCallback(() => {
     setIsLoading(true);
@@ -132,44 +276,18 @@ function App() {
       return;
     }
     
-    if (!activeTemplate) {
-        setError("沒有可用的訊息範本。");
-        setIsLoading(false);
-        return;
-    }
+    const finalMessage = processTemplate(messageTemplate, formData);
 
-    const finalMessage = processTemplate(activeTemplate.template, formData);
     setGeneratedMessage(finalMessage);
     setIsLoading(false);
     
-  }, [formData, activeTemplate]);
-
-  const handlePolishFanOffer = useCallback(async () => {
-    const fanOfferText = formData.fanOffer.trim();
-    if (!fanOfferText || fanOfferText === '無' || fanOfferText.length < 5) {
-      setError('請至少輸入 5 個字的粉絲優惠內容才能進行潤飾。');
-      return;
-    }
-
-    setIsPolishing(true);
-    setError('');
-
-    try {
-      const polishedText = await polishFanOffer(formData.fanOffer);
-      setFormData(prev => ({ ...prev, fanOffer: polishedText }));
-    } catch (e) {
-      console.error("Polishing failed:", e);
-      setError('AI 潤飾失敗，請檢查網路連線或稍後再試。');
-    } finally {
-      setIsPolishing(false);
-    }
-  }, [formData.fanOffer]);
+  }, [formData, messageTemplate]);
 
   const resetTemplate = useCallback(() => {
-    if (window.confirm("確定要將目前選擇的範本重置為預設內容嗎？")) {
-      updateTemplate(activeTemplateId, DEFAULT_MESSAGE_TEMPLATE);
+    if (window.confirm("確定要將範本重置為預設值嗎？您目前的編輯將會遺失。")) {
+      setMessageTemplate(DEFAULT_MESSAGE_TEMPLATE);
     }
-  }, [activeTemplateId, updateTemplate]);
+  }, []);
 
   const TabButton = ({ active, children, ...props }: { active: boolean, children: React.ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
     const baseClasses = "px-6 py-3 text-base font-semibold transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-cyan-500 rounded-t-lg";
@@ -207,16 +325,13 @@ function App() {
                 <KOLMessageForm 
                   formData={formData}
                   presets={presets}
-                  selectedPresetId={selectedPresetId}
                   onFormChange={handleFormChange}
                   onGenerate={handleGenerateMessage}
                   onRestart={handleRestart}
                   isLoading={isLoading}
-                  isPolishing={isPolishing}
-                  onPolishFanOffer={handlePolishFanOffer}
-                  onQuickSelect={selectPreset}
-                  onAddPreset={(name) => addPreset(name, formData)}
-                  onDeletePreset={deletePreset}
+                  onQuickSelect={handleQuickSelect}
+                  onAddPreset={handleAddPreset}
+                  onDeletePreset={handleDeletePreset}
                 />
               )}
               {activeTab === 'template' && (
@@ -224,12 +339,8 @@ function App() {
                   formData={formData}
                   isPreviewMode={isPreviewMode}
                   onPreviewModeChange={setIsPreviewMode}
-                  templatePresets={templatePresets}
-                  activeTemplateId={activeTemplateId}
-                  onTemplateChange={(content) => updateTemplate(activeTemplateId, content)}
-                  onSelectTemplate={selectTemplate}
-                  onAddTemplate={(name) => addTemplate(name, activeTemplate?.template)}
-                  onDeleteTemplate={deleteTemplate}
+                  template={messageTemplate}
+                  onTemplateChange={setMessageTemplate}
                   onReset={resetTemplate}
                   processTemplate={processTemplate}
                 />
