@@ -16,9 +16,3 @@ export interface Preset {
   name: string;
   data: Partial<KOLFormData>;
 }
-
-export interface TemplatePreset {
-  id: string;
-  name: string;
-  template: string;
-}
