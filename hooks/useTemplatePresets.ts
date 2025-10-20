@@ -89,18 +89,7 @@ export function useTemplatePresets() {
             setTemplatePresets(prev => {
                 const newPresets = prev.filter(p => p.id !== templateId);
                 if (activeTemplateId === templateId) {
-                    // 找到被刪除範本在舊陣列中的索引
-                    const deletedIndex = prev.findIndex(p => p.id === templateId);
-                    // 嘗試選擇新陣列中相同索引的範本，如果超出範圍則選擇前一個
-                    let nextActiveId = '';
-                    if (newPresets[deletedIndex]) {
-                        nextActiveId = newPresets[deletedIndex].id;
-                    } else if (deletedIndex > 0) {
-                        nextActiveId = newPresets[deletedIndex - 1].id;
-                    } else {
-                        nextActiveId = newPresets[0]?.id || '';
-                    }
-                    setActiveTemplateId(nextActiveId);
+                    setActiveTemplateId(newPresets[0]?.id || '');
                 }
                 return newPresets;
             });

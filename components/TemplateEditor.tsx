@@ -1,16 +1,23 @@
 import React, { useRef, useState } from 'react';
-import type { KOLFormData } from '../types';
+import type { KOLFormData, TemplatePreset } from '../types';
 import Textarea from './ui/Textarea';
 import Button from './ui/Button';
+import Select from './ui/Select';
+import Label from './ui/Label';
+import Input from './ui/Input';
 
 interface TemplateEditorProps {
   formData: KOLFormData;
   isPreviewMode: boolean;
   onPreviewModeChange: (isPreview: boolean) => void;
-  template: string;
-  onTemplateChange: (template: string) => void;
   onReset: () => void;
   processTemplate: (template: string, data: KOLFormData) => string;
+  templatePresets: TemplatePreset[];
+  activeTemplateId: string;
+  onTemplateChange: (newContent: string) => void;
+  onSelectTemplate: (templateId: string) => void;
+  onAddTemplate: (name: string) => void;
+  onDeleteTemplate: (templateId: string) => void;
 }
 
 const placeholderDetails = [
@@ -44,12 +51,44 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
   formData,
   isPreviewMode,
   onPreviewModeChange,
-  template, onTemplateChange,
   onReset,
-  processTemplate
+  processTemplate,
+  templatePresets,
+  activeTemplateId,
+  onTemplateChange,
+  onSelectTemplate,
+  onAddTemplate,
+  onDeleteTemplate,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isInstructionsOpen, setIsInstructionsOpen] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+
+  const activeTemplate = templatePresets.find(p => p.id === activeTemplateId) || templatePresets[0];
+  if (!activeTemplate) {
+    return <div className="text-red-400">錯誤：找不到有效的範本。請刷新頁面。</div>;
+  }
+
+  const handlePresetSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    onSelectTemplate(e.target.value);
+  };
+  
+  const handleSavePreset = () => {
+    if (newTemplateName.trim()) {
+      onAddTemplate(newTemplateName);
+      setNewTemplateName('');
+    } else {
+      alert("請輸入範本名稱。");
+    }
+  };
+
+  const handleDeletePreset = () => {
+    if (activeTemplateId) {
+        onDeleteTemplate(activeTemplateId);
+    } else {
+      alert("請從下拉選單中選擇一個要刪除的範本。")
+    }
+  };
 
   const insertText = (textToInsert: string) => {
     const textarea = textareaRef.current;
@@ -72,7 +111,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
     insertText(`{${placeholder}}`);
   };
 
-  const templatePreview = processTemplate(template, formData);
+  const templatePreview = processTemplate(activeTemplate.template, formData);
 
   return (
     <div className="space-y-6">
@@ -81,7 +120,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
           <div>
             <h2 className="text-2xl font-bold text-cyan-300">訊息範本編輯器</h2>
             <p className="text-slate-400 mt-2 text-sm">
-              自由編輯訊息範本。所有變數皆可使用，變更會自動儲存。
+              自由編輯訊息範本。所有變更會自動儲存。
             </p>
           </div>
           <div>
@@ -90,6 +129,44 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
         </div>
       </div>
       
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+        <h3 className="text-xl font-bold text-cyan-300 whitespace-nowrap">範本選單</h3>
+        <div className="w-full sm:w-auto">
+          <Label htmlFor="templateSelect" className="sr-only">選擇訊息範本</Label>
+          <Select
+            id="templateSelect"
+            name="templateSelect"
+            onChange={handlePresetSelectChange}
+            value={activeTemplateId}
+            aria-label="選擇訊息範本"
+          >
+            {templatePresets.map(preset => (
+              <option key={preset.id} value={preset.id}>{preset.name}</option>
+            ))}
+          </Select>
+        </div>
+      </div>
+      
+      <div className="flex flex-col sm:flex-row items-stretch gap-2">
+          <div className="flex-grow">
+              <Label htmlFor="newTemplateName" className="sr-only">新範本名稱</Label>
+              <Input
+                  id="newTemplateName"
+                  type="text"
+                  placeholder="為目前範本內容命名..."
+                  value={newTemplateName}
+                  onChange={(e) => setNewTemplateName(e.target.value)}
+                  aria-label="新範本名稱"
+              />
+          </div>
+          <Button onClick={handleSavePreset} variant="secondary" size="sm" disabled={!newTemplateName.trim()}>
+              儲存範本
+          </Button>
+          <Button onClick={handleDeletePreset} variant="secondary" size="sm" disabled={templatePresets.length <= 1}>
+              刪除所選
+          </Button>
+      </div>
+
       <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
         <>
           <div className="mb-4 bg-slate-900/60 rounded-md border border-slate-600">
@@ -178,8 +255,9 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
         <Textarea
           ref={textareaRef}
           id="main-template-editor"
-          value={isPreviewMode ? templatePreview : template}
+          value={isPreviewMode ? templatePreview : activeTemplate.template}
           onChange={(e) => onTemplateChange(e.target.value)}
+          readOnly={isPreviewMode}
           aria-label="主訊息範本編輯器"
           className="text-sm font-mono leading-relaxed"
         />
@@ -188,7 +266,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({
 
       <div className="flex justify-end pt-4 border-t border-slate-700">
         <Button onClick={onReset} variant="secondary">
-          重置範本
+          重置為預設內容
         </Button>
       </div>
     </div>

@@ -65,20 +65,18 @@ export function usePresets(
     const deletePreset = useCallback((presetId: string) => {
         if (!presetId) return;
 
-        setPresets(currentPresets => {
-            const presetToDelete = currentPresets.find(p => p.id === presetId);
-            if (presetToDelete) {
-                if (window.confirm(`確定要刪除方案 "${presetToDelete.name}" 嗎？`)) {
-                    setSelectedPresetId('');
-                    return currentPresets.filter(p => p.id !== presetId);
-                }
-            } else {
-                // This alert is now less likely to happen, but good for debugging.
-                alert("刪除失敗，找不到對應的方案。");
-            }
-            return currentPresets; // Return original state if no deletion occurs
-        });
-    }, []); // No dependencies needed due to functional update
+        const presetToDelete = presets.find(p => p.id === presetId);
+
+        if (!presetToDelete) {
+            alert("刪除失敗，找不到對應的方案。");
+            return;
+        }
+
+        if (window.confirm(`確定要刪除方案 "${presetToDelete.name}" 嗎？`)) {
+            setPresets(currentPresets => currentPresets.filter(p => p.id !== presetId));
+            setSelectedPresetId(''); // 刪除成功後，清除選中的 ID
+        }
+    }, [presets]);
 
     const selectPreset = useCallback((presetId: string) => {
         setSelectedPresetId(presetId);

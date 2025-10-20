@@ -1,5 +1,5 @@
 {
-  "name": "KOL Line Message Generator Version2",
+  "name": "Copy of KOL Line Message Generator Version3-刪除功能測試",
   "description": "An application to generate collaboration proposal messages for KOLs on LINE, based on user-defined terms and conditions. It uses AI to polish certain parts of the message for a more natural tone.",
   "requestFramePermissions": []
 }

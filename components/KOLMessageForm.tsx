@@ -11,35 +11,44 @@ import Textarea from './ui/Textarea';
 interface KOLMessageFormProps {
   formData: KOLFormData;
   presets: Preset[];
+  selectedPresetId: string;
   onFormChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => void;
   onGenerate: () => void;
   onRestart: () => void;
   isLoading: boolean;
+  isPolishing: boolean;
+  onPolishFanOffer: () => void;
   onQuickSelect: (planId: string) => void;
   onAddPreset: (name: string) => void;
   onDeletePreset: (planId: string) => void;
 }
 
+const SparkleIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
+    </svg>
+);
+
 const KOLMessageForm: React.FC<KOLMessageFormProps> = ({ 
   formData, 
   presets,
+  selectedPresetId,
   onFormChange, 
   onGenerate, 
   onRestart, 
-  isLoading, 
+  isLoading,
+  isPolishing,
+  onPolishFanOffer,
   onQuickSelect,
   onAddPreset,
   onDeletePreset
 }) => {
   
-  const [selectedPresetId, setSelectedPresetId] = useState('');
   const [newPresetName, setNewPresetName] = useState('');
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
   const handlePresetSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const id = e.target.value;
-    setSelectedPresetId(id);
-    onQuickSelect(id);
+    onQuickSelect(e.target.value);
   };
   
   const handleSavePreset = () => {
@@ -50,15 +59,13 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
       alert("請輸入方案名稱。");
     }
   };
-
+  
   const handleDeletePreset = () => {
     if (selectedPresetId) {
-      if (window.confirm(`確定要刪除方案 "${presets.find(p => p.id === selectedPresetId)?.name}" 嗎？`)) {
+        // onDeletePreset 應該負責刪除邏輯，包括確認視窗和狀態更新
         onDeletePreset(selectedPresetId);
-        setSelectedPresetId('');
-      }
     } else {
-      alert("請從下拉選單中選擇一個要刪除的方案。")
+        alert("請從下拉選單中選擇一個要刪除的方案。");
     }
   };
 
@@ -68,9 +75,23 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
   };
 
   // Helper to decide which value to display (raw or formatted)
-  const getDisplayValue = (fieldName: keyof KOLFormData, formatFn: (val: string) => string) => {
-    return focusedField === fieldName ? formData[fieldName] : formatFn(formData[fieldName]);
+  const getDisplayValue = (fieldName: keyof Omit<KOLFormData, 'contactPerson' | 'kolName' | 'endDate' | 'sendHandle' | 'fanOffer'>, formatFn: (val: string) => string) => {
+    // Unformat numbers before passing to the main handler
+    const rawValue = formData[fieldName];
+    if (focusedField === fieldName) {
+        return rawValue;
+    }
+    return formatFn(rawValue);
   };
+  
+  const handleNumericChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    // Remove formatting for state update
+    const unformattedValue = value.replace(/[,%]/g, '');
+    const event = { ...e, target: { ...e.target, name, value: unformattedValue } };
+    onFormChange(event);
+  };
+
 
   return (
     <div>
@@ -108,7 +129,12 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
           <Button onClick={handleSavePreset} variant="secondary" size="sm" disabled={isLoading || !newPresetName.trim()}>
               儲存方案
           </Button>
-          <Button onClick={handleDeletePreset} variant="secondary" size="sm" disabled={isLoading || !selectedPresetId}>
+          <Button 
+            onClick={handleDeletePreset} 
+            variant="secondary" 
+            size="sm" 
+            disabled={isLoading || !selectedPresetId}
+          >
               刪除所選
           </Button>
       </div>
@@ -133,7 +159,7 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
                   id="profitShare" 
                   name="profitShare" 
                   value={getDisplayValue('profitShare', formatPercent)} 
-                  onChange={onFormChange}
+                  onChange={handleNumericChange}
                   onFocus={(e) => setFocusedField(e.target.name)}
                   onBlur={() => setFocusedField(null)}
                   required 
@@ -152,14 +178,36 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
                   id="guaranteedMinimum" 
                   name="guaranteedMinimum" 
                   value={getDisplayValue('guaranteedMinimum', formatNumber)}
-                  onChange={onFormChange}
+                  onChange={handleNumericChange}
                   onFocus={(e) => setFocusedField(e.target.name)}
                   onBlur={() => setFocusedField(null)}
                 />
             </div>
              <div>
                 <Label htmlFor="fanOffer">粉絲優惠 (若無填「無」)</Label>
-                <Textarea id="fanOffer" name="fanOffer" value={formData.fanOffer} onChange={onFormChange} rows={1} autoResize={false} />
+                <div className="flex items-start gap-2">
+                  <Textarea 
+                    id="fanOffer" 
+                    name="fanOffer" 
+                    value={formData.fanOffer} 
+                    onChange={onFormChange} 
+                    rows={1} 
+                    autoResize={true}
+                    className="flex-grow"
+                  />
+                  <Button
+                    type="button"
+                    onClick={onPolishFanOffer}
+                    variant="secondary"
+                    size="sm"
+                    disabled={isLoading || isPolishing || !formData.fanOffer || formData.fanOffer.trim() === '無'}
+                    title="使用 AI 潤飾文案"
+                    className="!p-2 shrink-0"
+                    aria-label="使用 AI 潤飾文案"
+                  >
+                    {isPolishing ? <Spinner /> : <SparkleIcon />}
+                  </Button>
+                </div>
             </div>
         </div>
         
@@ -170,7 +218,7 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
                   id="bonusAmount" 
                   name="bonusAmount" 
                   value={getDisplayValue('bonusAmount', formatNumber)}
-                  onChange={onFormChange}
+                  onChange={handleNumericChange}
                   onFocus={(e) => setFocusedField(e.target.name)}
                   onBlur={() => setFocusedField(null)}
                 />
@@ -191,7 +239,7 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
                   id="performanceThreshold" 
                   name="performanceThreshold" 
                   value={getDisplayValue('performanceThreshold', formatNumber)}
-                  onChange={onFormChange}
+                  onChange={handleNumericChange}
                   onFocus={(e) => setFocusedField(e.target.name)}
                   onBlur={() => setFocusedField(null)}
                 />
@@ -202,7 +250,7 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
                   id="profitShareBonus" 
                   name="profitShareBonus" 
                   value={getDisplayValue('profitShareBonus', formatPercent)}
-                  onChange={onFormChange} 
+                  onChange={handleNumericChange} 
                   onFocus={(e) => setFocusedField(e.target.name)}
                   onBlur={() => setFocusedField(null)}
                   required 
@@ -215,7 +263,7 @@ const KOLMessageForm: React.FC<KOLMessageFormProps> = ({
             重新開始
           </Button>
           <Button type="submit" disabled={isLoading}>
-            {isLoading ? <><Spinner /> 生成中...</> : '生成訊息'}
+            {isLoading ? <><Spinner className="-ml-1 mr-2" /> 生成中...</> : '生成訊息'}
           </Button>
         </div>
       </form>
